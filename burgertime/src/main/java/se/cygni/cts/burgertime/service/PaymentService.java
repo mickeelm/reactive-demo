@@ -4,6 +4,8 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import se.cygni.cts.burgertime.scenario.PaymentScenarioProvider;
 
+import java.time.Duration;
+
 @Service
 public class PaymentService {
 
@@ -22,6 +24,10 @@ public class PaymentService {
      * TIMEOUT - will return true (which should be irrelevant when used in a timeout scenario), with a 2s delay.
      */
     Mono<Boolean> sufficientFunds() {
-        return Mono.empty();
+        return switch (scenarioProvider.nextScenario()) {
+            case FUNDED -> Mono.just(true).delayElement(Duration.ofMillis(250));
+            case INSUFFICIENT_FUNDS -> Mono.just(false).delayElement(Duration.ofMillis(250));
+            case TIMEOUT -> Mono.just(true).delayElement(Duration.ofSeconds(2));
+        };
     }
 }

@@ -6,6 +6,12 @@ import reactor.core.publisher.Mono;
 import se.cygni.cts.burgertime.model.Order;
 import se.cygni.cts.burgertime.repository.OrderRepository;
 
+import java.time.Duration;
+import java.util.concurrent.TimeoutException;
+
+import static se.cygni.cts.burgertime.model.Status.NEW;
+import static se.cygni.cts.burgertime.model.Status.PICKED_UP;
+
 @Service
 public class OrderService {
 
@@ -20,19 +26,45 @@ public class OrderService {
     }
 
     public Mono<String> place() {
-        return Mono.empty();
+        return paymentService.sufficientFunds()
+                .timeout(Duration.ofSeconds(1))
+                .flatMap(funded ->
+                        funded ? orderRepository.save(Order.newOrder()).map(this::msgFromStatusUpdate)
+                                : Mono.error(InsufficientFundsException::new)
+                )
+                .onErrorMap(TimeoutException.class, t -> new PaymentTimeoutException());
     }
 
     public Flux<String> prepare(Long orderId) {
-        return Flux.empty();
+        return orderRepository.findById(orderId)
+                .switchIfEmpty(Mono.error(OrderNotFoundException::new))
+                .filter(order -> order.getStatus() == NEW)
+                .switchIfEmpty(Mono.error(AlreadyPreparedException::new))
+                .flatMapMany(order -> kitchenService.prepareMeal()
+                        .map(order::updateStatus)
+                        .flatMap(orderRepository::save)
+                )
+                .map(this::msgFromStatusUpdate);
     }
 
     public Mono<String> pickUp(Long orderId) {
-        return Mono.empty();
+        return orderRepository.findById(orderId)
+                .switchIfEmpty(Mono.error(OrderNotFoundException::new))
+                .flatMap(order -> switch (order.getStatus()) {
+                    case NEW, PREPARING -> Mono.error(OrderNotReadyException::new);
+                    case PICKED_UP -> Mono.error(AlreadyPickedUpException::new);
+                    case READY -> Mono.just(order);
+                })
+                .map(Order::pickedUp)
+                .flatMap(orderRepository::save)
+                .map(this::msgFromStatusUpdate);
     }
 
     public Flux<String> prune() {
-        return Flux.empty();
+        return orderRepository.findByStatus(PICKED_UP)
+                .flatMap(order -> orderRepository.delete(order).thenReturn(order.getId()))
+                .map(this::pruneMessage)
+                .defaultIfEmpty("No orders to prune.");
     }
 
     private String pruneMessage(Long orderId) {
