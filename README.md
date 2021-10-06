@@ -1,6 +1,6 @@
 # Reactive-demo
 
-Reactive demo CTS 2021
+This is the "bonus material" from [my talk on reactive programming during CTS 2021](https://www.youtube.com/watch?v=1JQ7O4SboCc).
 
 ## Part 1 - Non-blocking I/O
 
